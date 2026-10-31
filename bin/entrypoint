@@ -4,6 +4,8 @@
 
 set -e
 
+BUILDKIT_IMAGE="${BUILDKIT_IMAGE:-moby/buildkit:buildx-stable-1}"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -271,7 +273,7 @@ EOF
   fi
 
   # Pre-pull buildkit image to avoid timeout during container start
-  docker pull moby/buildkit:buildx-stable-1 >/dev/null 2>&1 || true
+  docker pull "$BUILDKIT_IMAGE" >/dev/null 2>&1 || true
 
   BUILDKIT_CONFIGURED=false
   BUILDKIT_ERROR=""
@@ -281,7 +283,7 @@ EOF
     -v "$HOST_BUILDKIT_CONFIG":/etc/buildkit/buildkitd.toml:ro \
     -v "$HOST_BUILDKIT_CACHE":/var/lib/buildkit \
     $DOCKER_CONFIG_MOUNT \
-    moby/buildkit:buildx-stable-1 \
+    "$BUILDKIT_IMAGE" \
     --addr unix:///run/buildkit/buildkitd.sock \
     --config /etc/buildkit/buildkitd.toml 2>&1)
   if [ $? -eq 0 ]; then
@@ -324,7 +326,7 @@ elif [ -n "$CACHE_IMAGE" ]; then
   # Registry cache configured - need docker-container driver for cache export
   # Use network=host so BuildKit container can resolve DNS and reach apt/npm/etc
   info "BuildKit mode: registry cache ($CACHE_IMAGE)"
-  docker buildx create --name build --driver docker-container --driver-opt network=host --use >/dev/null 2>&1 || true
+  docker buildx create --name build --driver docker-container --driver-opt network=host --driver-opt image="$BUILDKIT_IMAGE" --use >/dev/null 2>&1 || true
 
 else
   # No cache configured - use docker's built-in buildkit
