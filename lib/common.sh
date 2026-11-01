@@ -32,6 +32,50 @@ error() {
   echo -e "${RED}-----> ERROR: $1${NC}" >&2
 }
 
+registry_host() {
+  case "$1" in
+    */*) ;;
+    *) return 0 ;;
+  esac
+  local ref="${1#*://}"
+  ref="${ref%%/*}"
+  case "$ref" in
+    *.*|*:*|localhost) echo "$ref" ;;
+  esac
+}
+
+is_transient_registry_error() {
+  local log="$1" host
+  [ -f "$log" ] || return 1
+  if grep -qE 'database system is shutting down|unexpected status from [A-Z]+ request to [^ ]+: (429|50[0-4])( |$)|failed to do request: .*(i/o timeout|connection refused|connection reset by peer|TLS handshake timeout|EOF)' "$log"; then
+    return 0
+  fi
+  for host in $(registry_host "$REGISTRY_MIRROR") $(registry_host "$OUTPUT_IMAGE") $(registry_host "$CACHE_IMAGE"); do
+    if grep -qE "unexpected status from [A-Z]+ request to https?://${host//./\\.}[/:][^ ]*: 401" "$log"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+buildx_with_retry() {
+  local log="$1"
+  shift
+  local attempt=1 max="${BUILD_RETRY_ATTEMPTS:-3}" delay="${BUILD_RETRY_DELAY:-15}" status
+  while :; do
+    docker buildx build "$@" 2>&1 | tee "$log" | filter_buildx_output
+    status=${PIPESTATUS[0]}
+    [ "$status" -eq 0 ] && return 0
+    if [ "$attempt" -ge "$max" ] || ! is_transient_registry_error "$log"; then
+      return "$status"
+    fi
+    attempt=$((attempt + 1))
+    warning "Registry temporarily unavailable, retrying build in ${delay}s (attempt ${attempt}/${max})"
+    sleep "$delay"
+    delay=$((delay * 2))
+  done
+}
+
 # Validate a name against the POSIX environment-variable identifier rule
 # (IEEE Std 1003.1 sec. 8.1): a letter or underscore followed by letters,
 # digits, or underscores. This is the same constraint Docker enforces on

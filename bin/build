@@ -1018,7 +1018,7 @@ if [ "$LANG_NORMALIZED" = "dockerfile" ]; then
   build_meta_label_flags "$BUILD_META_JSON"
   build_meta_arg_flags "$BUILD_META_JSON"
   build_latest_tag_flag "$OUTPUT_IMAGE"
-  if ! docker buildx build --progress=plain --network=host --platform "$DOCKER_PLATFORM" $ATTESTATION_FLAGS $CACHE_FLAGS "${SSH_FLAGS[@]}" "${BUILD_ARGS[@]}" "${BUILD_LABEL_FLAGS[@]}" "${BUILD_META_ARG_FLAGS[@]}" -f Dockerfile -t "$OUTPUT_IMAGE" $LATEST_TAG_FLAG $BUILD_OUTPUT_FLAG "$EFFECTIVE_SOURCE_DIR" 2>&1 | tee "$BUILD_OUTPUT" | filter_buildx_output; then
+  if ! buildx_with_retry "$BUILD_OUTPUT" --progress=plain --network=host --platform "$DOCKER_PLATFORM" $ATTESTATION_FLAGS $CACHE_FLAGS "${SSH_FLAGS[@]}" "${BUILD_ARGS[@]}" "${BUILD_LABEL_FLAGS[@]}" "${BUILD_META_ARG_FLAGS[@]}" -f Dockerfile -t "$OUTPUT_IMAGE" $LATEST_TAG_FLAG $BUILD_OUTPUT_FLAG "$EFFECTIVE_SOURCE_DIR"; then
     build_error=$(tail -20 "$BUILD_OUTPUT")
     rm -f "$BUILD_OUTPUT"
     handle_build_failure 1 "Docker build failed: $build_error"
@@ -1138,10 +1138,11 @@ if [ "$LANG_NORMALIZED" = "compose" ]; then
     build_meta_label_flags "$BUILD_META_JSON"
     build_meta_arg_flags "$BUILD_META_JSON"
     build_latest_tag_flag "$SERVICE_IMAGE"
-    if docker buildx build --progress=plain --network=host --platform "$DOCKER_PLATFORM" $ATTESTATION_FLAGS $CACHE_FLAGS "${SSH_FLAGS[@]}" "${BUILD_ARGS[@]}" "${BUILD_LABEL_FLAGS[@]}" "${BUILD_META_ARG_FLAGS[@]}" \
+    SERVICE_BUILD_OUTPUT=$(mktemp)
+    if buildx_with_retry "$SERVICE_BUILD_OUTPUT" --progress=plain --network=host --platform "$DOCKER_PLATFORM" $ATTESTATION_FLAGS $CACHE_FLAGS "${SSH_FLAGS[@]}" "${BUILD_ARGS[@]}" "${BUILD_LABEL_FLAGS[@]}" "${BUILD_META_ARG_FLAGS[@]}" \
         -f "$FULL_BUILD_CONTEXT/$SERVICE_DOCKERFILE" \
         -t "$SERVICE_IMAGE" $LATEST_TAG_FLAG --push \
-        "$FULL_BUILD_CONTEXT" 2>&1 | filter_buildx_output; then
+        "$FULL_BUILD_CONTEXT"; then
 
       # Pull image for port detection (buildx --push doesn't load locally)
       docker pull "$SERVICE_IMAGE" >/dev/null 2>&1 || true
@@ -1151,6 +1152,7 @@ if [ "$LANG_NORMALIZED" = "compose" ]; then
       error "Failed to build $SERVICE"
       BUILD_FAILURES=$((BUILD_FAILURES + 1))
     fi
+    rm -f "$SERVICE_BUILD_OUTPUT"
     echo ""
   done
 
@@ -2391,8 +2393,8 @@ ensure_build_meta_json "$LANG_NORMALIZED"
 build_meta_label_flags "$BUILD_META_JSON"
 stage_build_json "$RUNTIME_DOCKERFILE" "$EFFECTIVE_SOURCE_DIR" "$BUILD_META_JSON"
 build_latest_tag_flag "$OUTPUT_IMAGE"
-docker buildx build --progress=plain --network=host --platform "$DOCKER_PLATFORM" $ATTESTATION_FLAGS $CACHE_FLAGS "${SSH_FLAGS[@]}" "${BUILD_ARGS[@]}" "${BUILD_LABEL_FLAGS[@]}" -f "$RUNTIME_DOCKERFILE" -t "$OUTPUT_IMAGE" $LATEST_TAG_FLAG $BUILD_OUTPUT_FLAG "$EFFECTIVE_SOURCE_DIR" 2>&1 | tee "$BUILD_OUTPUT" | filter_buildx_output
-BUILD_EXIT=${PIPESTATUS[0]}
+buildx_with_retry "$BUILD_OUTPUT" --progress=plain --network=host --platform "$DOCKER_PLATFORM" $ATTESTATION_FLAGS $CACHE_FLAGS "${SSH_FLAGS[@]}" "${BUILD_ARGS[@]}" "${BUILD_LABEL_FLAGS[@]}" -f "$RUNTIME_DOCKERFILE" -t "$OUTPUT_IMAGE" $LATEST_TAG_FLAG $BUILD_OUTPUT_FLAG "$EFFECTIVE_SOURCE_DIR"
+BUILD_EXIT=$?
 
 if [ "$BUILD_EXIT" -ne 0 ]; then
   build_error=$(tail -20 "$BUILD_OUTPUT")
