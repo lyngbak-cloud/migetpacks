@@ -3,7 +3,7 @@
 # Variables
 REGISTRY ?= miget
 IMAGE_NAME ?= migetpacks
-IMAGE_TAG ?= 0.0.282
+IMAGE_TAG ?= 0.0.284
 PLATFORMS ?= linux/amd64,linux/arm64
 FULL_IMAGE = $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
 
